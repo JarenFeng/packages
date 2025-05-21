@@ -17,82 +17,114 @@ import androidx.media3.datasource.DefaultDataSource;
 import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.exoplayer.source.MediaSource;
+
+import android.net.Network;
+import android.util.Log;
+import android.os.Build;
+
+import androidx.media3.datasource.okhttp.OkHttpDataSource;
+import androidx.media3.exoplayer.source.MediaSource;
+import androidx.media3.exoplayer.source.ProgressiveMediaSource;
+
+import okhttp3.OkHttpClient;
+
 import java.util.Map;
 
 final class HttpVideoAsset extends VideoAsset {
-  private static final String DEFAULT_USER_AGENT = "ExoPlayer";
-  private static final String HEADER_USER_AGENT = "User-Agent";
+    private static final String DEFAULT_USER_AGENT = "ExoPlayer";
+    private static final String HEADER_USER_AGENT = "User-Agent";
 
-  @NonNull private final StreamingFormat streamingFormat;
-  @NonNull private final Map<String, String> httpHeaders;
+    @NonNull
+    private final StreamingFormat streamingFormat;
+    @NonNull
+    private final Map<String, String> httpHeaders;
+    @Nullable
+    private final Long networkHandle;
 
-  HttpVideoAsset(
-      @Nullable String assetUrl,
-      @NonNull StreamingFormat streamingFormat,
-      @NonNull Map<String, String> httpHeaders) {
-    super(assetUrl);
-    this.streamingFormat = streamingFormat;
-    this.httpHeaders = httpHeaders;
-  }
-
-  @NonNull
-  @Override
-  public MediaItem getMediaItem() {
-    MediaItem.Builder builder = new MediaItem.Builder().setUri(assetUrl);
-    String mimeType = null;
-    switch (streamingFormat) {
-      case SMOOTH:
-        mimeType = MimeTypes.APPLICATION_SS;
-        break;
-      case DYNAMIC_ADAPTIVE:
-        mimeType = MimeTypes.APPLICATION_MPD;
-        break;
-      case HTTP_LIVE:
-        mimeType = MimeTypes.APPLICATION_M3U8;
-        break;
+    HttpVideoAsset(
+            @Nullable String assetUrl,
+            @NonNull StreamingFormat streamingFormat,
+            @NonNull Map<String, String> httpHeaders,
+            @Nullable Long networkHandle) {
+        super(assetUrl);
+        this.streamingFormat = streamingFormat;
+        this.httpHeaders = httpHeaders;
+        this.networkHandle = networkHandle;
     }
-    if (mimeType != null) {
-      builder.setMimeType(mimeType);
-    }
-    return builder.build();
-  }
 
-  @NonNull
-  @Override
-  public MediaSource.Factory getMediaSourceFactory(@NonNull Context context) {
-    return getMediaSourceFactory(context, new DefaultHttpDataSource.Factory());
-  }
-
-  /**
-   * Returns a configured media source factory, starting at the provided factory.
-   *
-   * <p>This method is provided for ease of testing without making real HTTP calls.
-   *
-   * @param context application context.
-   * @param initialFactory initial factory, to be configured.
-   * @return configured factory, or {@code null} if not needed for this asset type.
-   */
-  @VisibleForTesting
-  MediaSource.Factory getMediaSourceFactory(
-      Context context, DefaultHttpDataSource.Factory initialFactory) {
-    String userAgent = DEFAULT_USER_AGENT;
-    if (!httpHeaders.isEmpty() && httpHeaders.containsKey(HEADER_USER_AGENT)) {
-      userAgent = httpHeaders.get(HEADER_USER_AGENT);
+    @NonNull
+    @Override
+    public MediaItem getMediaItem() {
+        MediaItem.Builder builder = new MediaItem.Builder().setUri(assetUrl);
+        String mimeType = null;
+        switch (streamingFormat) {
+            case SMOOTH:
+                mimeType = MimeTypes.APPLICATION_SS;
+                break;
+            case DYNAMIC_ADAPTIVE:
+                mimeType = MimeTypes.APPLICATION_MPD;
+                break;
+            case HTTP_LIVE:
+                mimeType = MimeTypes.APPLICATION_M3U8;
+                break;
+        }
+        if (mimeType != null) {
+            builder.setMimeType(mimeType);
+        }
+        return builder.build();
     }
-    unstableUpdateDataSourceFactory(initialFactory, httpHeaders, userAgent);
-    DataSource.Factory dataSourceFactory = new DefaultDataSource.Factory(context, initialFactory);
-    return new DefaultMediaSourceFactory(context).setDataSourceFactory(dataSourceFactory);
-  }
 
-  // TODO: Migrate to stable API, see https://github.com/flutter/flutter/issues/147039.
-  @OptIn(markerClass = UnstableApi.class)
-  private static void unstableUpdateDataSourceFactory(
-      @NonNull DefaultHttpDataSource.Factory factory,
-      @NonNull Map<String, String> httpHeaders,
-      @Nullable String userAgent) {
-    factory.setUserAgent(userAgent).setAllowCrossProtocolRedirects(true);
-    if (!httpHeaders.isEmpty()) {
-      factory.setDefaultRequestProperties(httpHeaders);
+    @NonNull
+    @Override
+    public MediaSource.Factory getMediaSourceFactory(@NonNull Context context) {
+        return getMediaSourceFactory(context, new DefaultHttpDataSource.Factory());
     }
-  }
+
+    /**
+     * Returns a configured media source factory, starting at the provided factory.
+     *
+     * <p>This method is provided for ease of testing without making real HTTP calls.
+     *
+     * @param context        application context.
+     * @param initialFactory initial factory, to be configured.
+     * @return configured factory, or {@code null} if not needed for this asset type.
+     */
+    @VisibleForTesting
+    MediaSource.Factory getMediaSourceFactory(
+            Context context, DefaultHttpDataSource.Factory initialFactory) {
+        if (networkHandle == null) {
+            return originalGetMediaSourceFactory(context, initialFactory);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            Log.w("HttpVideoAsset", "Using network handle for socket factory");
+            return new ProgressiveMediaSource.Factory(new OkHttpDataSource.Factory(new OkHttpClient.Builder()
+                    .socketFactory(Network.fromNetworkHandle(networkHandle).getSocketFactory())
+                    .build()));
+        }
+        Log.w("HttpVideoAsset", "fromNetworkHandle not supported below API 28, using original factory");
+        return originalGetMediaSourceFactory(context, initialFactory);
+    }
+
+    private MediaSource.Factory originalGetMediaSourceFactory(
+            Context context, DefaultHttpDataSource.Factory initialFactory) {
+        String userAgent = DEFAULT_USER_AGENT;
+        if (!httpHeaders.isEmpty() && httpHeaders.containsKey(HEADER_USER_AGENT)) {
+            userAgent = httpHeaders.get(HEADER_USER_AGENT);
+        }
+        unstableUpdateDataSourceFactory(initialFactory, httpHeaders, userAgent);
+        DataSource.Factory dataSourceFactory = new DefaultDataSource.Factory(context, initialFactory);
+        return new DefaultMediaSourceFactory(context).setDataSourceFactory(dataSourceFactory);
+    }
+
+    // TODO: Migrate to stable API, see https://github.com/flutter/flutter/issues/147039.
+    @OptIn(markerClass = UnstableApi.class)
+    private static void unstableUpdateDataSourceFactory(
+            @NonNull DefaultHttpDataSource.Factory factory,
+            @NonNull Map<String, String> httpHeaders,
+            @Nullable String userAgent) {
+        factory.setUserAgent(userAgent).setAllowCrossProtocolRedirects(true);
+        if (!httpHeaders.isEmpty()) {
+            factory.setDefaultRequestProperties(httpHeaders);
+        }
+    }
 }

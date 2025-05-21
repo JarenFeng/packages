@@ -37,6 +37,7 @@ class CreateMessage {
   String? formatHint;
   Map<String, String> httpHeaders;
   PlatformVideoViewType? viewType;
+  int? networkHandle;
 }
 
 @HostApi(dartHostTestHandler: 'TestHostVideoPlayerApi')

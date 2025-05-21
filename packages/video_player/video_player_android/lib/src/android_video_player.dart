@@ -79,6 +79,7 @@ class AndroidVideoPlayer extends VideoPlayerPlatform {
       httpHeaders: httpHeaders,
       formatHint: formatHint,
       viewType: _platformVideoViewTypeFromVideoViewType(options.viewType),
+      networkHandle: dataSource.networkHandle
     );
 
     final int playerId = await _api.create(message);

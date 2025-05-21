@@ -148,6 +148,7 @@ class DataSource {
     this.asset,
     this.package,
     this.httpHeaders = const <String, String>{},
+    this.networkHandle,
   });
 
   /// The way in which the video was originally loaded.
@@ -177,6 +178,9 @@ class DataSource {
   /// The package that the asset was loaded from. Only set for
   /// [DataSourceType.asset] videos.
   final String? package;
+
+  /// The network handle, Only set for [DataSourceType.network] videos.
+  final int? networkHandle;
 }
 
 /// The way in which the video was originally loaded.
